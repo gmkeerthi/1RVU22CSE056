@@ -1,293 +1,157 @@
-import React, { useState, useEffect, createContext, useContext } from "react";
-import {
-  BrowserRouter,
-  Routes,
-  Route,
-  useParams,
-  useNavigate,
-  Link,
-} from "react-router-dom";
-import {
-  Button,
-  TextField,
-  Typography,
-  Container,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  Paper,
-} from "@mui/material";
+import React, { useState, useEffect } from "react";
+import { BrowserRouter, Routes, Route, useParams, useNavigate, Link } from "react-router-dom";
 
-////////////////////////////////////////////////////////////////////////////////
-// api package
-////////////////////////////////////////////////////////////////////////////////
-const api = {
-  LINKS_KEY: "links_v2",
-  CLICKS_KEY: "clicks_v2",
-  saveLinks(links) {
-    localStorage.setItem(this.LINKS_KEY, JSON.stringify(links));
-  },
-  loadLinks() {
-    return JSON.parse(localStorage.getItem(this.LINKS_KEY) || "{}");
-  },
-  saveClicks(clicks) {
-    localStorage.setItem(this.CLICKS_KEY, JSON.stringify(clicks));
-  },
-  loadClicks() {
-    return JSON.parse(localStorage.getItem(this.CLICKS_KEY) || "{}");
-  },
-  generateCode(existing) {
-    const chars =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+function App() {
+  const [links, setLinks] = useState(() => JSON.parse(localStorage.getItem("links") || "{}"));
+  const [clicks, setClicks] = useState(() => JSON.parse(localStorage.getItem("clicks") || "{}"));
+
+  useEffect(() => {
+    localStorage.setItem("links", JSON.stringify(links));
+  }, [links]);
+  useEffect(() => {
+    localStorage.setItem("clicks", JSON.stringify(clicks));
+  }, [clicks]);
+
+  const generateCode = () => {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let code;
     do {
       code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-    } while (existing[code]);
+    } while (links[code]);
     return code;
-  },
-  isValidURL(url) {
-    try {
-      const u = new URL(url);
-      return u.protocol === "http:" || u.protocol === "https:";
-    } catch {
-      return false;
-    }
-  },
-  nowPlusMinutes(mins) {
-    return Date.now() + mins * 60000;
-  },
-};
+  };
 
-////////////////////////////////////////////////////////////////////////////////
-// state package (contexts)
-////////////////////////////////////////////////////////////////////////////////
-const UrlContext = createContext();
-const LoggerContext = createContext();
-
-////////////////////////////////////////////////////////////////////////////////
-// hook package
-////////////////////////////////////////////////////////////////////////////////
-function useLogger() {
-  return useContext(LoggerContext);
-}
-function useUrls() {
-  return useContext(UrlContext);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// component package
-////////////////////////////////////////////////////////////////////////////////
-function UrlForm() {
-  const { links, addLink } = useUrls();
-  const [url, setUrl] = useState("");
-  const [customCode, setCustomCode] = useState("");
-  const [validity, setValidity] = useState(30); // minutes
-  const logger = useLogger();
-
-  const handleSubmit = () => {
-    if (!api.isValidURL(url)) {
-      logger.log("Invalid URL", { url });
+  const addLink = (url, validity, custom) => {
+    if (!url.startsWith("http")) {
+      alert("Invalid URL");
       return;
     }
-
-    let code = customCode || api.generateCode(links);
+    const code = custom || generateCode();
     if (links[code]) {
-      logger.log("Code already exists", { code });
+      alert("Code already exists!");
       return;
     }
-
     const entry = {
-      code,
       url,
+      code,
       createdAt: Date.now(),
-      expiresAt: api.nowPlusMinutes(validity || 30),
+      expiresAt: Date.now() + (validity || 30) * 60000,
     };
-    addLink(entry);
-    logger.log("Created short link", entry);
+    setLinks({ ...links, [code]: entry });
+  };
+
+  const addClick = (code) => {
+    const c = { ts: Date.now(), ref: document.referrer || "direct" };
+    setClicks({ ...clicks, [code]: [...(clicks[code] || []), c] });
+  };
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<CreatePage links={links} addLink={addLink} clicks={clicks} />} />
+        <Route path="/stats" element={<StatsPage clicks={clicks} />} />
+        <Route path="/:code" element={<RedirectPage links={links} addClick={addClick} />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+function CreatePage({ links, addLink, clicks }) {
+  const [url, setUrl] = useState("");
+  const [custom, setCustom] = useState("");
+  const [validity, setValidity] = useState(30);
+
+  const handleAdd = () => {
+    addLink(url, validity, custom);
     setUrl("");
-    setCustomCode("");
+    setCustom("");
     setValidity(30);
   };
 
   return (
-    <div style={{ marginBottom: 20 }}>
-      <TextField
-        label="Enter URL"
-        fullWidth
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        sx={{ mb: 1 }}
-      />
-      <TextField
-        label="Custom Code (optional)"
-        fullWidth
-        value={customCode}
-        onChange={(e) => setCustomCode(e.target.value)}
-        sx={{ mb: 1 }}
-      />
-      <TextField
-        label="Validity (minutes)"
+    <div style={{ padding: 20 }}>
+      <h2>URL Shortener</h2>
+      <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Enter URL" />
+      <br />
+      <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="Custom code (optional)" />
+      <br />
+      <input
         type="number"
-        fullWidth
         value={validity}
         onChange={(e) => setValidity(Number(e.target.value))}
-        sx={{ mb: 1 }}
+        placeholder="Validity in minutes"
       />
-      <Button onClick={handleSubmit} variant="contained">
-        Shorten
-      </Button>
+      <br />
+      <button onClick={handleAdd}>Shorten</button>
+
+      <h3>All Links</h3>
+      <table border="1" cellPadding="5">
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>URL</th>
+            <th>Clicks</th>
+            <th>Expiry</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Object.values(links).map((l) => (
+            <tr key={l.code}>
+              <td><Link to={`/${l.code}`}>{l.code}</Link></td>
+              <td>{l.url}</td>
+              <td>{clicks[l.code]?.length || 0}</td>
+              <td>{new Date(l.expiresAt).toLocaleTimeString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <p><Link to="/stats">View Stats</Link></p>
     </div>
   );
 }
 
-function UrlList() {
-  const { links, clicks } = useUrls();
-  return (
-    <Table component={Paper}>
-      <TableHead>
-        <TableRow>
-          <TableCell>Code</TableCell>
-          <TableCell>Original URL</TableCell>
-          <TableCell>Clicks</TableCell>
-          <TableCell>Expiry</TableCell>
-        </TableRow>
-      </TableHead>
-      <TableBody>
-        {Object.values(links).map((l) => (
-          <TableRow key={l.code}>
-            <TableCell>
-              <Link to={`/${l.code}`}>{l.code}</Link>
-            </TableCell>
-            <TableCell>{l.url}</TableCell>
-            <TableCell>{clicks[l.code]?.length || 0}</TableCell>
-            <TableCell>
-              {new Date(l.expiresAt).toLocaleTimeString()}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// page package
-////////////////////////////////////////////////////////////////////////////////
-function CreatePage() {
-  return (
-    <Container>
-      <Typography variant="h4" sx={{ mb: 2 }}>
-        URL Shortener
-      </Typography>
-      <UrlForm />
-      <UrlList />
-    </Container>
-  );
-}
-
-function RedirectPage() {
+function RedirectPage({ links, addClick }) {
   const { code } = useParams();
-  const { links, addClick } = useUrls();
-  const logger = useLogger();
   const navigate = useNavigate();
 
   useEffect(() => {
     const entry = links[code];
     if (!entry) {
-      logger.log("Invalid redirect code", { code });
+      alert("Invalid code!");
       navigate("/");
       return;
     }
     if (Date.now() > entry.expiresAt) {
-      logger.log("Link expired", { code });
+      alert("Link expired!");
       navigate("/");
       return;
     }
-    const click = {
-      ts: Date.now(),
-      ref: document.referrer || "direct",
-    };
-    addClick(code, click);
-    logger.log("Redirect", { code, click });
+    addClick(code);
     window.location.href = entry.url;
-  }, [code, links, addClick, navigate, logger]);
+  }, [code, links, addClick, navigate]);
 
-  return <Typography>Redirecting...</Typography>;
+  return <p>Redirecting...</p>;
 }
 
-function StatsPage() {
-  const { clicks } = useUrls();
+function StatsPage({ clicks }) {
   return (
-    <Container>
-      <Typography variant="h4" sx={{ mb: 2 }}>
-        Stats
-      </Typography>
+    <div style={{ padding: 20 }}>
+      <h2>Stats</h2>
       {Object.entries(clicks).map(([code, arr]) => (
-        <Paper key={code} sx={{ p: 2, mb: 2 }}>
-          <Typography variant="h6">Code: {code}</Typography>
-          <Typography>Total Clicks: {arr.length}</Typography>
+        <div key={code} style={{ marginBottom: 20 }}>
+          <h3>Code: {code}</h3>
+          <p>Total Clicks: {arr.length}</p>
           <ul>
             {arr.map((c, i) => (
-              <li key={i}>
-                {new Date(c.ts).toLocaleTimeString()} - Ref: {c.ref}
-              </li>
+              <li key={i}>{new Date(c.ts).toLocaleTimeString()} - Ref: {c.ref}</li>
             ))}
           </ul>
-        </Paper>
-      ))}
-    </Container>
-  );
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// style package (simple theme placeholder)
-////////////////////////////////////////////////////////////////////////////////
-const style = {
-  app: { fontFamily: "sans-serif", padding: 20 },
-};
-
-////////////////////////////////////////////////////////////////////////////////
-// root App
-////////////////////////////////////////////////////////////////////////////////
-export default function App() {
-  const [links, setLinks] = useState(api.loadLinks());
-  const [clicks, setClicks] = useState(api.loadClicks());
-  const [logs, setLogs] = useState([]);
-
-  const addLink = (entry) => {
-    const newLinks = { ...links, [entry.code]: entry };
-    setLinks(newLinks);
-    api.saveLinks(newLinks);
-  };
-  const addClick = (code, click) => {
-    const newClicks = { ...clicks, [code]: [...(clicks[code] || []), click] };
-    setClicks(newClicks);
-    api.saveClicks(newClicks);
-  };
-
-  const logger = {
-    log: (msg, payload) => {
-      const entry = { ts: Date.now(), msg, payload };
-      setLogs((l) => [...l, entry]);
-    },
-    logs,
-  };
-
-  return (
-    <LoggerContext.Provider value={logger}>
-      <UrlContext.Provider value={{ links, clicks, addLink, addClick }}>
-        <div style={style.app}>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<CreatePage />} />
-              <Route path="/stats" element={<StatsPage />} />
-              <Route path="/:code" element={<RedirectPage />} />
-            </Routes>
-          </BrowserRouter>
         </div>
-      </UrlContext.Provider>
-    </LoggerContext.Provider>
+      ))}
+      <p><Link to="/">Back</Link></p>
+    </div>
   );
 }
+
+export default App;
